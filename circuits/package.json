@@ -1,0 +1,35 @@
+{
+  "name": "zkbluff-circuits",
+  "version": "1.0.0",
+  "description": "ZK circuits for ZKluff card game using circom + snarkjs",
+  "private": true,
+  "scripts": {
+    "install:circom": "curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh && cargo install circom",
+    "build:commitment": "circom hand_commitment.circom --r1cs --wasm --sym -o build/",
+    "build:declaration": "circom declaration_valid.circom --r1cs --wasm --sym -o build/",
+    "build:all": "npm run build:commitment && npm run build:declaration",
+    "ptau:new": "snarkjs powersoftau new bn128 12 pot12_0000.ptau -v",
+    "ptau:contribute": "snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name=\"dev\" -v -e=\"zkbluff dev entropy\"",
+    "ptau:finalize": "snarkjs powersoftau prepare phase2 pot12_0001.ptau pot12_final.ptau -v",
+    "ptau:all": "npm run ptau:new && npm run ptau:contribute && npm run ptau:finalize",
+    "setup:commitment": "snarkjs groth16 setup build/hand_commitment.r1cs pot12_final.ptau build/hand_commitment_0000.zkey",
+    "setup:declaration": "snarkjs groth16 setup build/declaration_valid.r1cs pot12_final.ptau build/declaration_valid_0000.zkey",
+    "zkey:contribute:commitment": "snarkjs zkey contribute build/hand_commitment_0000.zkey build/hand_commitment_final.zkey --name=\"dev\" -e=\"zkbluff dev entropy\"",
+    "zkey:contribute:declaration": "snarkjs zkey contribute build/declaration_valid_0000.zkey build/declaration_valid_final.zkey --name=\"dev\" -e=\"zkbluff dev entropy\"",
+    "export:vk:commitment": "snarkjs zkey export verificationkey build/hand_commitment_final.zkey build/hand_commitment_vk.json",
+    "export:vk:declaration": "snarkjs zkey export verificationkey build/declaration_valid_final.zkey build/declaration_valid_vk.json",
+    "export:solidity": "snarkjs zkey export solidityverifier build/declaration_valid_final.zkey build/Verifier.sol",
+    "prove:commitment": "snarkjs groth16 prove build/hand_commitment_final.zkey build/hand_commitment_js/witness.wtns build/commitment_proof.json build/commitment_public.json",
+    "prove:declaration": "snarkjs groth16 prove build/declaration_valid_final.zkey build/declaration_valid_js/witness.wtns build/declaration_proof.json build/declaration_public.json",
+    "verify:commitment": "snarkjs groth16 verify build/hand_commitment_vk.json build/commitment_public.json build/commitment_proof.json",
+    "verify:declaration": "snarkjs groth16 verify build/declaration_valid_vk.json build/declaration_public.json build/declaration_proof.json",
+    "full:setup": "npm run ptau:all && npm run setup:commitment && npm run zkey:contribute:commitment && npm run export:vk:commitment && npm run setup:declaration && npm run zkey:contribute:declaration && npm run export:vk:declaration"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "snarkjs": "^0.7.4"
+  },
+  "devDependencies": {
+    "ffjavascript": "^0.3.0"
+  }
+}

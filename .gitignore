@@ -1,0 +1,32 @@
+# ── Scarb / Cairo ────────────────────────────────────────────────────────────
+contracts/target/
+contracts/.snfoundry_cache/
+
+# ── Node / npm ───────────────────────────────────────────────────────────────
+node_modules/
+circuits/node_modules/
+frontend/node_modules/
+circuits/build/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# ── snarkjs / circuit artifacts ───────────────────────────────────────────────
+*.ptau
+*.zkey
+*.wtns
+*.r1cs
+*.sym
+circuits/build/
+
+# ── Starknet wallets / secrets ────────────────────────────────────────────────
+.starkli-wallets/
+*.json.bak
+keystore*.json
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+.DS_Store
+*.log
+.env
+.venv/
+__pycache__/

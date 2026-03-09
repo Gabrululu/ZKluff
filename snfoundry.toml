@@ -1,0 +1,4 @@
+[sncast.zkbluff]
+url = "https://api.cartridge.gg/x/starknet/sepolia"
+accounts-file = "/home/codespace/.starkli-wallets/zkbluff/account.json"
+account = "zkbluff"
