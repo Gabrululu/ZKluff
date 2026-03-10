@@ -263,8 +263,11 @@ export function useJoinRoom() {
       try {
         const { CallData, cairo } = await import("starknet");
 
-        // Fetch room bet amount for approval
+        // Fetch room and validate before sending tx
         const room = await callGetRoom(roomId);
+        if (room.player_a?.toLowerCase() === account.address?.toLowerCase()) {
+          throw new Error("Cannot join your own room");
+        }
         const betUint256 = cairo.uint256(BigInt(room.bet_amount));
 
         const tx = await account.execute([

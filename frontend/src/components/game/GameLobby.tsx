@@ -23,7 +23,9 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
   const { disconnect } = useDisconnect();
 
   const waitingRooms = rooms.filter(
-    (r: any) => r.phase === "WaitingForPlayers" && r.player_a !== walletAddress
+    (r: any) =>
+      r.phase === "WaitingForPlayers" &&
+      r.player_a?.toLowerCase() !== walletAddress?.toLowerCase()
   );
 
   const handleCreate = async () => {
@@ -40,9 +42,8 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
     const success = await joinRoom(id);
     if (success) {
       onJoinGame(id.toString());
-    } else {
-      setJoinError("Failed to join room. Check that you have enough tokens approved.");
     }
+    // joinError2 from the hook will surface the specific error (e.g. "Cannot join your own room")
   };
 
   const errorMsg = createError || joinError2 || joinError || mintError;
