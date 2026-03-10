@@ -28,6 +28,13 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
       r.player_a?.toLowerCase() !== walletAddress?.toLowerCase()
   );
 
+  // Rooms created by the current user that are still open (player B hasn't joined yet)
+  const myOpenRooms = rooms.filter(
+    (r: any) =>
+      r.phase === "WaitingForPlayers" &&
+      r.player_a?.toLowerCase() === walletAddress?.toLowerCase()
+  );
+
   const handleCreate = async () => {
     setJoinError("");
     const fee = parseFloat(entryFee) || 0.05;
@@ -159,6 +166,45 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
             </motion.button>
           </motion.div>
         </div>
+
+        {/* Your open rooms — rejoin without calling join_room */}
+        {myOpenRooms.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-6 border border-primary/20"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-2 h-2 rounded-full bg-primary animate-pulse-green" />
+              <h3 className="font-display text-lg font-bold text-primary">Your Open Rooms</h3>
+            </div>
+            <p className="font-mono text-[10px] text-muted-foreground mb-4">
+              Waiting for an opponent. Share the Room ID so someone can join.
+              <br />
+              <span className="text-yellow-500/70">Note: rooms cannot be cancelled — your bet is locked until an opponent joins.</span>
+            </p>
+            <div className="flex flex-col gap-2">
+              {myOpenRooms.map((room: any) => (
+                <div key={room.id} className="flex items-center justify-between rounded-lg border border-border/40 px-4 py-3">
+                  <div className="flex items-center gap-4">
+                    <span className="font-mono text-xs text-foreground">Room #{room.id}</span>
+                    <span className="font-mono text-xs text-gold">
+                      {room.bet_amount ? (Number(BigInt(room.bet_amount)) / 1e18).toFixed(4) : "—"} ZKT
+                    </span>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => onJoinGame(room.id.toString())}
+                    className="px-4 py-1.5 rounded-md bg-primary/20 border border-primary/40 text-primary text-xs font-display font-bold uppercase hover:bg-primary/30 transition-colors"
+                  >
+                    Rejoin
+                  </motion.button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
         {/* Active Rooms */}
         <motion.div
