@@ -315,6 +315,10 @@ export function useMintTokens() {
 
   const mintTokens = useCallback(async () => {
     if (!account) return;
+    if (TOKEN_ADDRESS === "0x0") {
+      setError("Token contract address not configured. Check VITE_TOKEN_CONTRACT in .env and restart the dev server.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

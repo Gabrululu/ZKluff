@@ -21,6 +21,60 @@ export const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
 // import GameAbi from "../../contracts/target/dev/zkbluff_Game.contract_class.json";
 
 export const GAME_ABI = [
+  // ── Type definitions required by starknet.js v8 for ABI decoding ─────────
+  {
+    type: "struct",
+    name: "core::integer::u256",
+    members: [
+      { name: "low", type: "core::integer::u128" },
+      { name: "high", type: "core::integer::u128" },
+    ],
+  },
+  {
+    type: "enum",
+    name: "zkbluff::game::GamePhase",
+    variants: [
+      { name: "WaitingForPlayers", type: "()" },
+      { name: "CommitPhase", type: "()" },
+      { name: "DeclarationPhase", type: "()" },
+      { name: "ChallengePhase", type: "()" },
+      { name: "Resolved", type: "()" },
+    ],
+  },
+  {
+    type: "enum",
+    name: "zkbluff::game::DeclarationType",
+    variants: [
+      { name: "HighCard", type: "()" },
+      { name: "OnePair", type: "()" },
+      { name: "TwoPair", type: "()" },
+      { name: "ThreeOfAKind", type: "()" },
+      { name: "Straight", type: "()" },
+      { name: "Flush", type: "()" },
+      { name: "FullHouse", type: "()" },
+      { name: "FourOfAKind", type: "()" },
+      { name: "StraightFlush", type: "()" },
+    ],
+  },
+  {
+    type: "struct",
+    name: "zkbluff::game::Room",
+    members: [
+      { name: "player_a", type: "core::starknet::contract_address::ContractAddress" },
+      { name: "player_b", type: "core::starknet::contract_address::ContractAddress" },
+      { name: "bet_amount", type: "core::integer::u256" },
+      { name: "pot", type: "core::integer::u256" },
+      { name: "phase", type: "zkbluff::game::GamePhase" },
+      { name: "commitment_a", type: "core::felt252" },
+      { name: "commitment_b", type: "core::felt252" },
+      { name: "active_player_index", type: "core::integer::u8" },
+      { name: "declaration", type: "zkbluff::game::DeclarationType" },
+      { name: "declaration_commitment", type: "core::felt252" },
+      { name: "declaration_type_felt", type: "core::felt252" },
+      { name: "winner", type: "core::starknet::contract_address::ContractAddress" },
+    ],
+  },
+  // ── Functions ─────────────────────────────────────────────────────────────
   {
     type: "function",
     name: "create_room",
