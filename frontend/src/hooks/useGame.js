@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAccount } from "@starknet-react/core";
-import { GAME_ADDRESS, TOKEN_ADDRESS, GAME_ABI, TOKEN_ABI, parseRoom, provider } from "../utils/starknet";
+import {
+  GAME_ADDRESS, TOKEN_ADDRESS,
+  callGetNextRoomId, callGetRoom, callBalanceOf,
+  provider,
+} from "../utils/starknet";
 import { computeCommitment } from "../utils/proof";
 
 // ── Poll interval for room state ─────────────────────────────────────────────
@@ -8,15 +12,12 @@ const POLL_INTERVAL_MS = 5000;
 
 /**
  * waitForTx — polls until tx is accepted, compatible with RPC v0_7 and v0_10.
- * starknet.js 8.x provider.waitForTransaction fails with RPC v0_10 due to
- * receipt schema differences (actual_fee object vs string, events array, etc.).
  */
 async function waitForTx(txHash, maxAttempts = 60, intervalMs = 3000) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const receipt = await provider.getTransactionReceipt(txHash);
       if (!receipt) { await new Promise((r) => setTimeout(r, intervalMs)); continue; }
-      // RPC v0_7 uses `status`, v0_10 uses `finality_status` / `execution_status`
       const execStatus = receipt.execution_status ?? "";
       const finalityStatus = receipt.finality_status ?? receipt.status ?? "";
       if (execStatus === "REVERTED") {
@@ -29,7 +30,6 @@ async function waitForTx(txHash, maxAttempts = 60, intervalMs = 3000) {
       ) return receipt;
     } catch (e) {
       if (e.message?.includes("reverted")) throw e;
-      // Receipt not yet available — keep polling
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
@@ -42,7 +42,7 @@ async function waitForTx(txHash, maxAttempts = 60, intervalMs = 3000) {
  */
 export function useGame(roomId, playerAddress) {
   const [room, setRoom] = useState(null);
-  const [hand, setHand] = useState([]); // private — never sent to chain
+  const [hand, setHand] = useState([]);
   const [salt] = useState(() =>
     BigInt("0x" + Array.from(crypto.getRandomValues(new Uint8Array(31)))
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -57,10 +57,8 @@ export function useGame(roomId, playerAddress) {
   const fetchRoom = useCallback(async () => {
     if (!roomId) return;
     try {
-      const { Contract } = await import("starknet");
-      const contract = new Contract(GAME_ABI, GAME_ADDRESS, provider);
-      const raw = await contract.get_room(roomId);
-      setRoom(parseRoom(raw));
+      const parsed = await callGetRoom(roomId);
+      setRoom(parsed);
     } catch (e) {
       console.error("fetchRoom error:", e);
     }
@@ -101,17 +99,16 @@ export function useGame(roomId, playerAddress) {
       setLoading(true);
       setError(null);
       try {
-        // Raw calldata: enum variant index, then tuples flattened
         const tx = await account.execute([{
           contractAddress: GAME_ADDRESS,
           entrypoint: "declare",
           calldata: [
             roomId,
-            declarationType,              // Cairo enum variant index
-            ...cairoProof.proof_a,         // [a0, a1]
-            ...cairoProof.proof_b[0],      // [b00, b01]
-            ...cairoProof.proof_b[1],      // [b10, b11]
-            ...cairoProof.proof_c,         // [c0, c1]
+            declarationType,
+            ...cairoProof.proof_a,
+            ...cairoProof.proof_b[0],
+            ...cairoProof.proof_b[1],
+            ...cairoProof.proof_c,
           ],
         }]);
         await waitForTx(tx.transaction_hash);
@@ -179,17 +176,14 @@ export function useRooms() {
     if (GAME_ADDRESS === "0x0") return;
     setLoading(true);
     try {
-      const { Contract } = await import("starknet");
-      const contract = new Contract(GAME_ABI, GAME_ADDRESS, provider);
-      const nextId = Number(await contract.get_next_room_id());
+      const nextId = await callGetNextRoomId();
       const results = [];
       for (let id = 1; id < nextId; id++) {
         try {
-          const raw = await contract.get_room(id);
-          const room = parseRoom(raw);
+          const room = await callGetRoom(id);
           results.push({ id, ...room });
         } catch {
-          // skip
+          // skip rooms that fail to fetch
         }
       }
       setRooms(results);
@@ -221,14 +215,11 @@ export function useCreateRoom() {
       setLoading(true);
       setError(null);
       try {
-        const { Contract, CallData, cairo } = await import("starknet");
+        const { CallData, cairo } = await import("starknet");
 
-        // Read next_room_id BEFORE creating — that will be the new room's id
-        const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
-        const expectedRoomId = Number(await gameContractView.get_next_room_id());
+        // Read next_room_id before creating — that will be the new room's id
+        const expectedRoomId = await callGetNextRoomId();
 
-        // Multicall: approve + create_room in a single wallet interaction
-        // Bypass Contract ABI parser — encode u256 explicitly to avoid starknet.js v8 issues
         const betUint256 = cairo.uint256(BigInt(betAmount));
         const tx = await account.execute([
           {
@@ -270,16 +261,12 @@ export function useJoinRoom() {
       setLoading(true);
       setError(null);
       try {
-        const { Contract, CallData, cairo } = await import("starknet");
+        const { CallData, cairo } = await import("starknet");
 
         // Fetch room bet amount for approval
-        const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
-        const raw = await gameContractView.get_room(roomId);
-        const betAmount = raw.bet_amount;
+        const room = await callGetRoom(roomId);
+        const betUint256 = cairo.uint256(BigInt(room.bet_amount));
 
-        // Multicall: approve + join_room in a single wallet interaction
-        // Bypass Contract ABI parser — encode u256 explicitly to avoid starknet.js v8 issues
-        const betUint256 = cairo.uint256(BigInt(betAmount));
         const tx = await account.execute([
           {
             contractAddress: TOKEN_ADDRESS,
@@ -316,14 +303,13 @@ export function useMintTokens() {
   const mintTokens = useCallback(async () => {
     if (!account) return;
     if (TOKEN_ADDRESS === "0x0") {
-      setError("Token contract address not configured. Check VITE_TOKEN_CONTRACT in .env and restart the dev server.");
+      setError("Token contract not configured. Check VITE_TOKEN_CONTRACT in .env and restart the dev server.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
       const { CallData, cairo } = await import("starknet");
-      // Mint 1000 ZKT (1000 * 10^18) — bypass Contract ABI parser, encode u256 explicitly
       const amount = cairo.uint256(BigInt("1000000000000000000000"));
       const tx = await account.execute([{
         contractAddress: TOKEN_ADDRESS,
@@ -348,10 +334,8 @@ export function useTokenBalance(address) {
   const fetchBalance = useCallback(async () => {
     if (!address || TOKEN_ADDRESS === "0x0") return;
     try {
-      const { Contract } = await import("starknet");
-      const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, provider);
-      const raw = await tokenContract.balance_of(address);
-      setBalance((Number(BigInt(raw.toString())) / 1e18).toFixed(2));
+      const bal = await callBalanceOf(address);
+      setBalance(bal);
     } catch {
       // silent
     }
@@ -365,4 +349,3 @@ export function useTokenBalance(address) {
 
   return { balance, refetch: fetchBalance };
 }
-
