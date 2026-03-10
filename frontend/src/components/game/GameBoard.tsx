@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useDisconnect } from "@starknet-react/core";
 import GameStatus from "./GameStatus";
 import HandDisplay, { CardData } from "./HandDisplay";
 import GameLog from "./GameLog";
@@ -79,6 +80,8 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
     error,
     salt,
   } = useGame(roomId, walletAddress);
+
+  const { disconnect } = useDisconnect();
 
   // Private hand: generated once, synced into useGame's state for commitment
   const handNumbers = useMemo(() => generateHandNumbers(), []);
@@ -162,14 +165,24 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
             {walletAddress}
           </span>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onLeave}
-          className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Leave
-        </motion.button>
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onLeave}
+            className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Leave
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => disconnect()}
+            className="font-mono text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            Disconnect
+          </motion.button>
+        </div>
       </nav>
 
       <div className="flex-1 flex flex-col p-4 gap-4 max-w-6xl mx-auto w-full">

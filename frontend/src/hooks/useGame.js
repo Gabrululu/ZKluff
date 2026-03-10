@@ -1,10 +1,40 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAccount, useContract, useSendTransaction } from "@starknet-react/core";
+import { useAccount } from "@starknet-react/core";
 import { GAME_ADDRESS, TOKEN_ADDRESS, GAME_ABI, TOKEN_ABI, parseRoom, provider } from "../utils/starknet";
 import { computeCommitment } from "../utils/proof";
 
 // ── Poll interval for room state ─────────────────────────────────────────────
 const POLL_INTERVAL_MS = 5000;
+
+/**
+ * waitForTx — polls until tx is accepted, compatible with RPC v0_7 and v0_10.
+ * starknet.js 8.x provider.waitForTransaction fails with RPC v0_10 due to
+ * receipt schema differences (actual_fee object vs string, events array, etc.).
+ */
+async function waitForTx(txHash, maxAttempts = 60, intervalMs = 3000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const receipt = await provider.getTransactionReceipt(txHash);
+      if (!receipt) { await new Promise((r) => setTimeout(r, intervalMs)); continue; }
+      // RPC v0_7 uses `status`, v0_10 uses `finality_status` / `execution_status`
+      const execStatus = receipt.execution_status ?? "";
+      const finalityStatus = receipt.finality_status ?? receipt.status ?? "";
+      if (execStatus === "REVERTED") {
+        throw new Error(`Transaction reverted: ${receipt.revert_reason ?? "unknown reason"}`);
+      }
+      if (
+        finalityStatus === "ACCEPTED_ON_L2" ||
+        finalityStatus === "ACCEPTED_ON_L1" ||
+        execStatus === "SUCCEEDED"
+      ) return receipt;
+    } catch (e) {
+      if (e.message?.includes("reverted")) throw e;
+      // Receipt not yet available — keep polling
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Transaction timeout — check Starkscan for status");
+}
 
 /**
  * Main hook for interacting with the ZKluff game contract.
@@ -27,7 +57,8 @@ export function useGame(roomId, playerAddress) {
   const fetchRoom = useCallback(async () => {
     if (!roomId) return;
     try {
-      const contract = new (await import("starknet")).Contract(GAME_ABI, GAME_ADDRESS, provider);
+      const { Contract } = await import("starknet");
+      const contract = new Contract(GAME_ABI, GAME_ADDRESS, provider);
       const raw = await contract.get_room(roomId);
       setRoom(parseRoom(raw));
     } catch (e) {
@@ -48,11 +79,10 @@ export function useGame(roomId, playerAddress) {
     setError(null);
     try {
       const commitment = await computeCommitment(hand, salt);
-
       const { Contract } = await import("starknet");
       const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
       const tx = await gameContract.commit_hand(roomId, commitment);
-      await provider.waitForTransaction(tx.transaction_hash);
+      await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
       setError(e.message ?? "Failed to commit hand");
@@ -68,12 +98,9 @@ export function useGame(roomId, playerAddress) {
       setLoading(true);
       setError(null);
       try {
-        const { Contract, cairo } = await import("starknet");
+        const { Contract } = await import("starknet");
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-
-        // Cairo enum variant as felt
         const declarationEnum = { variant: { [declarationEnumVariant(declarationType)]: {} } };
-
         const tx = await gameContract.declare(
           roomId,
           declarationEnum,
@@ -81,7 +108,7 @@ export function useGame(roomId, playerAddress) {
           cairoProof.proof_b,
           cairoProof.proof_c
         );
-        await provider.waitForTransaction(tx.transaction_hash);
+        await waitForTx(tx.transaction_hash);
         await fetchRoom();
       } catch (e) {
         setError(e.message ?? "Failed to declare");
@@ -101,7 +128,7 @@ export function useGame(roomId, playerAddress) {
       const { Contract } = await import("starknet");
       const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
       const tx = await gameContract.challenge(roomId);
-      await provider.waitForTransaction(tx.transaction_hash);
+      await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
       setError(e.message ?? "Failed to challenge");
@@ -119,7 +146,7 @@ export function useGame(roomId, playerAddress) {
       const { Contract } = await import("starknet");
       const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
       const tx = await gameContract.fold(roomId);
-      await provider.waitForTransaction(tx.transaction_hash);
+      await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
       setError(e.message ?? "Failed to fold");
@@ -150,7 +177,7 @@ export function useRooms() {
           const room = parseRoom(raw);
           results.push({ id, ...room });
         } catch {
-          // skip invalid rooms
+          // skip
         }
       }
       setRooms(results);
@@ -171,7 +198,7 @@ export function useRooms() {
 }
 
 // ── Create room hook ─────────────────────────────────────────────────────────
-export function useCreateRoom(playerAddress) {
+export function useCreateRoom() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { account } = useAccount();
@@ -184,19 +211,19 @@ export function useCreateRoom(playerAddress) {
       try {
         const { Contract } = await import("starknet");
 
-        // Read next_room_id BEFORE creating — that will be our new room's id
+        // Read next_room_id BEFORE creating — that will be the new room's id
         const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
         const expectedRoomId = Number(await gameContractView.get_next_room_id());
 
-        // Approve token spend first
+        // Approve token spend
         const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
         const approveTx = await tokenContract.approve(GAME_ADDRESS, betAmount);
-        await provider.waitForTransaction(approveTx.transaction_hash);
+        await waitForTx(approveTx.transaction_hash);
 
         // Create room
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
         const tx = await gameContract.create_room(betAmount);
-        await provider.waitForTransaction(tx.transaction_hash);
+        await waitForTx(tx.transaction_hash);
 
         return expectedRoomId;
       } catch (e) {
@@ -213,7 +240,7 @@ export function useCreateRoom(playerAddress) {
 }
 
 // ── Join room hook ───────────────────────────────────────────────────────────
-export function useJoinRoom(playerAddress) {
+export function useJoinRoom() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const { account } = useAccount();
@@ -226,7 +253,7 @@ export function useJoinRoom(playerAddress) {
       try {
         const { Contract } = await import("starknet");
 
-        // Fetch room to get bet amount for approval
+        // Fetch room bet amount for approval
         const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
         const raw = await gameContractView.get_room(roomId);
         const betAmount = raw.bet_amount;
@@ -234,12 +261,12 @@ export function useJoinRoom(playerAddress) {
         // Approve token spend
         const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
         const approveTx = await tokenContract.approve(GAME_ADDRESS, betAmount);
-        await provider.waitForTransaction(approveTx.transaction_hash);
+        await waitForTx(approveTx.transaction_hash);
 
         // Join
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
         const tx = await gameContract.join_room(roomId);
-        await provider.waitForTransaction(tx.transaction_hash);
+        await waitForTx(tx.transaction_hash);
         return true;
       } catch (e) {
         setError(e.message ?? "Failed to join room");
@@ -269,7 +296,7 @@ export function useMintTokens() {
       const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
       // Mint 1000 ZKT (1000 * 10^18)
       const tx = await tokenContract.mint(account.address, BigInt("1000000000000000000000"));
-      await provider.waitForTransaction(tx.transaction_hash);
+      await waitForTx(tx.transaction_hash);
     } catch (e) {
       setError(e.message ?? "Failed to mint tokens");
     } finally {

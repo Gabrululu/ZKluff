@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { useDisconnect } from "@starknet-react/core";
 // @ts-ignore — JS hook
 import { useCreateRoom, useJoinRoom, useRooms, useMintTokens, useTokenBalance } from "@/hooks/useGame";
 
@@ -19,6 +20,7 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
   const { rooms, loading: roomsLoading, refetch } = useRooms();
   const { mintTokens, loading: mintLoading, error: mintError } = useMintTokens();
   const { balance: zktBalance } = useTokenBalance(walletAddress);
+  const { disconnect } = useDisconnect();
 
   const waitingRooms = rooms.filter(
     (r: any) => r.phase === "WaitingForPlayers" && r.player_a !== walletAddress
@@ -66,9 +68,17 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
             {mintLoading ? "Minting..." : "Get Tokens"}
           </motion.button>
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse-green" />
-          <span className="font-mono text-xs text-muted-foreground truncate max-w-[100px] md:max-w-none">
+          <span className="font-mono text-xs text-muted-foreground truncate max-w-[80px] md:max-w-[160px]">
             {walletAddress}
           </span>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => disconnect()}
+            className="px-2 py-1 rounded-md border border-border/40 text-muted-foreground text-xs font-mono hover:text-foreground hover:border-border transition-colors"
+          >
+            Disconnect
+          </motion.button>
         </div>
       </nav>
 
