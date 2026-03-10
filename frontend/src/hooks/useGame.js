@@ -79,9 +79,12 @@ export function useGame(roomId, playerAddress) {
     setError(null);
     try {
       const commitment = await computeCommitment(hand, salt);
-      const { Contract } = await import("starknet");
-      const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-      const tx = await gameContract.commit_hand(roomId, commitment);
+      const { CallData } = await import("starknet");
+      const tx = await account.execute([{
+        contractAddress: GAME_ADDRESS,
+        entrypoint: "commit_hand",
+        calldata: CallData.compile({ room_id: roomId, commitment }),
+      }]);
       await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
@@ -98,16 +101,19 @@ export function useGame(roomId, playerAddress) {
       setLoading(true);
       setError(null);
       try {
-        const { Contract } = await import("starknet");
-        const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-        const declarationEnum = { variant: { [declarationEnumVariant(declarationType)]: {} } };
-        const tx = await gameContract.declare(
-          roomId,
-          declarationEnum,
-          cairoProof.proof_a,
-          cairoProof.proof_b,
-          cairoProof.proof_c
-        );
+        // Raw calldata: enum variant index, then tuples flattened
+        const tx = await account.execute([{
+          contractAddress: GAME_ADDRESS,
+          entrypoint: "declare",
+          calldata: [
+            roomId,
+            declarationType,              // Cairo enum variant index
+            ...cairoProof.proof_a,         // [a0, a1]
+            ...cairoProof.proof_b[0],      // [b00, b01]
+            ...cairoProof.proof_b[1],      // [b10, b11]
+            ...cairoProof.proof_c,         // [c0, c1]
+          ],
+        }]);
         await waitForTx(tx.transaction_hash);
         await fetchRoom();
       } catch (e) {
@@ -125,9 +131,12 @@ export function useGame(roomId, playerAddress) {
     setLoading(true);
     setError(null);
     try {
-      const { Contract } = await import("starknet");
-      const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-      const tx = await gameContract.challenge(roomId);
+      const { CallData } = await import("starknet");
+      const tx = await account.execute([{
+        contractAddress: GAME_ADDRESS,
+        entrypoint: "challenge",
+        calldata: CallData.compile({ room_id: roomId }),
+      }]);
       await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
@@ -143,9 +152,12 @@ export function useGame(roomId, playerAddress) {
     setLoading(true);
     setError(null);
     try {
-      const { Contract } = await import("starknet");
-      const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-      const tx = await gameContract.fold(roomId);
+      const { CallData } = await import("starknet");
+      const tx = await account.execute([{
+        contractAddress: GAME_ADDRESS,
+        entrypoint: "fold",
+        calldata: CallData.compile({ room_id: roomId }),
+      }]);
       await waitForTx(tx.transaction_hash);
       await fetchRoom();
     } catch (e) {
@@ -209,18 +221,27 @@ export function useCreateRoom() {
       setLoading(true);
       setError(null);
       try {
-        const { Contract } = await import("starknet");
+        const { Contract, CallData, cairo } = await import("starknet");
 
         // Read next_room_id BEFORE creating — that will be the new room's id
         const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
         const expectedRoomId = Number(await gameContractView.get_next_room_id());
 
         // Multicall: approve + create_room in a single wallet interaction
-        const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
-        const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-        const approveCall = tokenContract.populate("approve", [GAME_ADDRESS, betAmount]);
-        const createCall = gameContract.populate("create_room", [betAmount]);
-        const tx = await account.execute([approveCall, createCall]);
+        // Bypass Contract ABI parser — encode u256 explicitly to avoid starknet.js v8 issues
+        const betUint256 = cairo.uint256(BigInt(betAmount));
+        const tx = await account.execute([
+          {
+            contractAddress: TOKEN_ADDRESS,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: GAME_ADDRESS, amount: betUint256 }),
+          },
+          {
+            contractAddress: GAME_ADDRESS,
+            entrypoint: "create_room",
+            calldata: CallData.compile({ bet_amount: betUint256 }),
+          },
+        ]);
         await waitForTx(tx.transaction_hash);
 
         return expectedRoomId;
@@ -249,7 +270,7 @@ export function useJoinRoom() {
       setLoading(true);
       setError(null);
       try {
-        const { Contract } = await import("starknet");
+        const { Contract, CallData, cairo } = await import("starknet");
 
         // Fetch room bet amount for approval
         const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
@@ -257,11 +278,20 @@ export function useJoinRoom() {
         const betAmount = raw.bet_amount;
 
         // Multicall: approve + join_room in a single wallet interaction
-        const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
-        const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-        const approveCall = tokenContract.populate("approve", [GAME_ADDRESS, betAmount]);
-        const joinCall = gameContract.populate("join_room", [roomId]);
-        const tx = await account.execute([approveCall, joinCall]);
+        // Bypass Contract ABI parser — encode u256 explicitly to avoid starknet.js v8 issues
+        const betUint256 = cairo.uint256(BigInt(betAmount));
+        const tx = await account.execute([
+          {
+            contractAddress: TOKEN_ADDRESS,
+            entrypoint: "approve",
+            calldata: CallData.compile({ spender: GAME_ADDRESS, amount: betUint256 }),
+          },
+          {
+            contractAddress: GAME_ADDRESS,
+            entrypoint: "join_room",
+            calldata: CallData.compile({ room_id: roomId }),
+          },
+        ]);
         await waitForTx(tx.transaction_hash);
         return true;
       } catch (e) {
@@ -288,10 +318,14 @@ export function useMintTokens() {
     setLoading(true);
     setError(null);
     try {
-      const { Contract } = await import("starknet");
-      const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
-      // Mint 1000 ZKT (1000 * 10^18)
-      const tx = await tokenContract.mint(account.address, BigInt("1000000000000000000000"));
+      const { CallData, cairo } = await import("starknet");
+      // Mint 1000 ZKT (1000 * 10^18) — bypass Contract ABI parser, encode u256 explicitly
+      const amount = cairo.uint256(BigInt("1000000000000000000000"));
+      const tx = await account.execute([{
+        contractAddress: TOKEN_ADDRESS,
+        entrypoint: "mint",
+        calldata: CallData.compile({ recipient: account.address, amount }),
+      }]);
       await waitForTx(tx.transaction_hash);
     } catch (e) {
       setError(e.message ?? "Failed to mint tokens");
@@ -328,10 +362,3 @@ export function useTokenBalance(address) {
   return { balance, refetch: fetchBalance };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function declarationEnumVariant(type) {
-  return [
-    "HighCard", "OnePair", "TwoPair", "ThreeOfAKind",
-    "Straight", "Flush", "FullHouse", "FourOfAKind", "StraightFlush",
-  ][type] ?? "HighCard";
-}
