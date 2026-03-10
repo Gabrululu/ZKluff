@@ -215,14 +215,12 @@ export function useCreateRoom() {
         const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
         const expectedRoomId = Number(await gameContractView.get_next_room_id());
 
-        // Approve token spend
+        // Multicall: approve + create_room in a single wallet interaction
         const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
-        const approveTx = await tokenContract.approve(GAME_ADDRESS, betAmount);
-        await waitForTx(approveTx.transaction_hash);
-
-        // Create room
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-        const tx = await gameContract.create_room(betAmount);
+        const approveCall = tokenContract.populate("approve", [GAME_ADDRESS, betAmount]);
+        const createCall = gameContract.populate("create_room", [betAmount]);
+        const tx = await account.execute([approveCall, createCall]);
         await waitForTx(tx.transaction_hash);
 
         return expectedRoomId;
@@ -258,14 +256,12 @@ export function useJoinRoom() {
         const raw = await gameContractView.get_room(roomId);
         const betAmount = raw.bet_amount;
 
-        // Approve token spend
+        // Multicall: approve + join_room in a single wallet interaction
         const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
-        const approveTx = await tokenContract.approve(GAME_ADDRESS, betAmount);
-        await waitForTx(approveTx.transaction_hash);
-
-        // Join
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
-        const tx = await gameContract.join_room(roomId);
+        const approveCall = tokenContract.populate("approve", [GAME_ADDRESS, betAmount]);
+        const joinCall = gameContract.populate("join_room", [roomId]);
+        const tx = await account.execute([approveCall, joinCall]);
         await waitForTx(tx.transaction_hash);
         return true;
       } catch (e) {
