@@ -1,14 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 // @ts-ignore — JS hook
-import { useCreateRoom, useJoinRoom } from "@/hooks/useGame";
-
-interface ActiveRoom {
-  id: string;
-  players: number;
-  pot: number;
-  status: string;
-}
+import { useCreateRoom, useJoinRoom, useRooms, useMintTokens, useTokenBalance } from "@/hooks/useGame";
 
 interface GameLobbyProps {
   walletAddress: string;
@@ -16,29 +9,41 @@ interface GameLobbyProps {
   onJoinGame: (roomId: string) => void;
 }
 
-const mockRooms: ActiveRoom[] = [
-  { id: "0x7a3f...e12b", players: 1, pot: 0.05, status: "Waiting" },
-  { id: "0x9c2d...a8f4", players: 2, pot: 0.2, status: "In Progress" },
-  { id: "0x1b5e...d937", players: 1, pot: 0.1, status: "Waiting" },
-];
-
 const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) => {
   const [entryFee, setEntryFee] = useState("");
   const [roomId, setRoomId] = useState("");
+  const [joinError, setJoinError] = useState("");
 
-  const { createRoom, loading: createLoading } = useCreateRoom(walletAddress);
-  const { joinRoom, loading: joinLoading } = useJoinRoom(walletAddress);
+  const { createRoom, loading: createLoading, error: createError } = useCreateRoom(walletAddress);
+  const { joinRoom, loading: joinLoading, error: joinError2 } = useJoinRoom(walletAddress);
+  const { rooms, loading: roomsLoading, refetch } = useRooms();
+  const { mintTokens, loading: mintLoading, error: mintError } = useMintTokens();
+  const { balance: zktBalance } = useTokenBalance(walletAddress);
+
+  const waitingRooms = rooms.filter(
+    (r: any) => r.phase === "WaitingForPlayers" && r.player_a !== walletAddress
+  );
 
   const handleCreate = async () => {
+    setJoinError("");
     const fee = parseFloat(entryFee) || 0.05;
     const newRoomId = await createRoom(BigInt(Math.round(fee * 1e18)));
-    if (newRoomId != null) onCreateGame(newRoomId.toString());
+    if (newRoomId != null) {
+      onCreateGame(newRoomId.toString());
+    }
   };
 
-  const handleJoin = async (id: string) => {
+  const handleJoin = async (id: string | number) => {
+    setJoinError("");
     const success = await joinRoom(id);
-    if (success) onJoinGame(id);
+    if (success) {
+      onJoinGame(id.toString());
+    } else {
+      setJoinError("Failed to join room. Check that you have enough tokens approved.");
+    }
   };
+
+  const errorMsg = createError || joinError2 || joinError || mintError;
 
   return (
     <div className="min-h-screen flex flex-col scanline">
@@ -47,13 +52,38 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
         <span className="font-display text-xl font-bold text-foreground text-glow-green">
           ZKluff
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-primary">
+            {zktBalance !== null ? `${zktBalance} ZKT` : "— ZKT"}
+          </span>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={mintTokens}
+            disabled={mintLoading}
+            className="px-3 py-1 rounded-md border border-primary/40 text-primary text-xs font-mono hover:bg-primary/10 transition-colors disabled:opacity-50"
+          >
+            {mintLoading ? "Minting..." : "Get Tokens"}
+          </motion.button>
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse-green" />
-          <span className="font-mono text-xs text-muted-foreground">{walletAddress}</span>
+          <span className="font-mono text-xs text-muted-foreground truncate max-w-[100px] md:max-w-none">
+            {walletAddress}
+          </span>
         </div>
       </nav>
 
       <div className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full">
+        {/* Error banner */}
+        {errorMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 font-mono text-xs text-red-400"
+          >
+            {errorMsg}
+          </motion.div>
+        )}
+
         {/* Create / Join Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
           <motion.div
@@ -65,7 +95,7 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
             <p className="text-sm text-muted-foreground mb-6">Start a new ZK bluff room</p>
             <div className="mb-4">
               <label className="font-mono text-xs text-muted-foreground mb-1.5 block">
-                Entry Fee (ETH)
+                Entry Fee (tokens, in wei)
               </label>
               <input
                 type="number"
@@ -94,16 +124,16 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
             className="glass rounded-xl p-6 border border-foreground/10"
           >
             <h2 className="font-display text-2xl font-bold text-foreground mb-1">Join Game</h2>
-            <p className="text-sm text-muted-foreground mb-6">Enter an existing room</p>
+            <p className="text-sm text-muted-foreground mb-6">Enter a room ID manually</p>
             <div className="mb-4">
               <label className="font-mono text-xs text-muted-foreground mb-1.5 block">
-                Room ID
+                Room ID (number)
               </label>
               <input
                 type="text"
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
-                placeholder="0x7a3f...e12b"
+                placeholder="1"
                 className="w-full bg-muted border border-border rounded-lg px-4 py-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -126,67 +156,77 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
           transition={{ delay: 0.2 }}
           className="glass rounded-xl p-6"
         >
-          <h3 className="font-display text-lg font-bold text-foreground mb-4">Active Rooms</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
-                    Room ID
-                  </th>
-                  <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
-                    Players
-                  </th>
-                  <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
-                    Pot
-                  </th>
-                  <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
-                    Status
-                  </th>
-                  <th className="py-2 px-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {mockRooms.map((room) => (
-                  <tr
-                    key={room.id}
-                    className="border-b border-border/30 hover:bg-foreground/[0.02] transition-colors"
-                  >
-                    <td className="font-mono text-xs text-foreground py-3 px-3">{room.id}</td>
-                    <td className="font-mono text-xs text-muted-foreground py-3 px-3">
-                      {room.players}/2
-                    </td>
-                    <td className="font-mono text-xs text-gold py-3 px-3">
-                      {room.pot.toFixed(2)} ETH
-                    </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                          room.status === "Waiting"
-                            ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {room.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3">
-                      {room.status === "Waiting" && (
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-display text-lg font-bold text-foreground">Open Rooms</h3>
+            <button
+              onClick={refetch}
+              disabled={roomsLoading}
+              className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+            >
+              {roomsLoading ? "Loading..." : "Refresh"}
+            </button>
+          </div>
+
+          {roomsLoading && rooms.length === 0 ? (
+            <p className="font-mono text-xs text-muted-foreground py-6 text-center">
+              Fetching rooms from chain...
+            </p>
+          ) : waitingRooms.length === 0 ? (
+            <p className="font-mono text-xs text-muted-foreground py-6 text-center">
+              No open rooms. Create one above.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border/50">
+                    <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
+                      Room ID
+                    </th>
+                    <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
+                      Creator
+                    </th>
+                    <th className="text-left font-mono text-[10px] text-muted-foreground uppercase tracking-wider py-2 px-3">
+                      Bet
+                    </th>
+                    <th className="py-2 px-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {waitingRooms.map((room: any) => (
+                    <tr
+                      key={room.id}
+                      className="border-b border-border/30 hover:bg-foreground/[0.02] transition-colors"
+                    >
+                      <td className="font-mono text-xs text-foreground py-3 px-3">#{room.id}</td>
+                      <td className="font-mono text-xs text-muted-foreground py-3 px-3">
+                        {room.player_a
+                          ? `${room.player_a.slice(0, 6)}...${room.player_a.slice(-4)}`
+                          : "—"}
+                      </td>
+                      <td className="font-mono text-xs text-gold py-3 px-3">
+                        {room.bet_amount
+                          ? (Number(BigInt(room.bet_amount)) / 1e18).toFixed(4)
+                          : "—"}{" "}
+                        ZKT
+                      </td>
+                      <td className="py-3 px-3">
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => handleJoin(room.id)}
-                          className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-display font-bold uppercase"
+                          disabled={joinLoading}
+                          className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-display font-bold uppercase disabled:opacity-50"
                         >
                           Join
                         </motion.button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </motion.div>
       </div>
     </div>

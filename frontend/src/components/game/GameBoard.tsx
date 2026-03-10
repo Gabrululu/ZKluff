@@ -133,9 +133,9 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
         addLog("Proof generation failed. Try again.");
         return;
       }
-      addLog("ZK Proof ready. Submitting declaration on-chain...");
+      addLog("✓ Groth16 proof verified locally. Submitting on-chain...");
       await declare(pendingDeclarationType, cairoProof);
-      addLog("Declaration submitted. Waiting for opponent to respond...");
+      addLog("Declaration + ZK proof submitted on-chain.");
     },
     [declare, pendingDeclarationType, addLog]
   );

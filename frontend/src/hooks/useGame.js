@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, useContract, useSendTransaction } from "@starknet-react/core";
-import { GAME_ADDRESS, TOKEN_ADDRESS, GAME_ABI, TOKEN_ABI, parseRoom } from "../utils/starknet";
+import { GAME_ADDRESS, TOKEN_ADDRESS, GAME_ABI, TOKEN_ABI, parseRoom, provider } from "../utils/starknet";
 import { computeCommitment } from "../utils/proof";
-import { provider } from "../utils/starknet";
 
 // ── Poll interval for room state ─────────────────────────────────────────────
 const POLL_INTERVAL_MS = 5000;
@@ -132,6 +131,45 @@ export function useGame(roomId, playerAddress) {
   return { room, hand, setHand, commitHand, declare, challenge, fold, loading, error, salt };
 }
 
+// ── Fetch all open rooms hook ─────────────────────────────────────────────────
+export function useRooms() {
+  const [rooms, setRooms] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchRooms = useCallback(async () => {
+    if (GAME_ADDRESS === "0x0") return;
+    setLoading(true);
+    try {
+      const { Contract } = await import("starknet");
+      const contract = new Contract(GAME_ABI, GAME_ADDRESS, provider);
+      const nextId = Number(await contract.get_next_room_id());
+      const results = [];
+      for (let id = 1; id < nextId; id++) {
+        try {
+          const raw = await contract.get_room(id);
+          const room = parseRoom(raw);
+          results.push({ id, ...room });
+        } catch {
+          // skip invalid rooms
+        }
+      }
+      setRooms(results);
+    } catch (e) {
+      console.error("fetchRooms error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRooms();
+    const interval = setInterval(fetchRooms, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [fetchRooms]);
+
+  return { rooms, loading, refetch: fetchRooms };
+}
+
 // ── Create room hook ─────────────────────────────────────────────────────────
 export function useCreateRoom(playerAddress) {
   const [loading, setLoading] = useState(false);
@@ -146,6 +184,10 @@ export function useCreateRoom(playerAddress) {
       try {
         const { Contract } = await import("starknet");
 
+        // Read next_room_id BEFORE creating — that will be our new room's id
+        const gameContractView = new Contract(GAME_ABI, GAME_ADDRESS, provider);
+        const expectedRoomId = Number(await gameContractView.get_next_room_id());
+
         // Approve token spend first
         const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
         const approveTx = await tokenContract.approve(GAME_ADDRESS, betAmount);
@@ -154,14 +196,9 @@ export function useCreateRoom(playerAddress) {
         // Create room
         const gameContract = new Contract(GAME_ABI, GAME_ADDRESS, account);
         const tx = await gameContract.create_room(betAmount);
-        const receipt = await provider.waitForTransaction(tx.transaction_hash);
+        await provider.waitForTransaction(tx.transaction_hash);
 
-        // Extract room_id from events
-        const roomEvent = receipt.events?.find((e) =>
-          e.keys?.[0]?.includes("RoomCreated")
-        );
-        const roomId = roomEvent ? Number(roomEvent.keys[1]) : null;
-        return roomId;
+        return expectedRoomId;
       } catch (e) {
         setError(e.message ?? "Failed to create room");
         return null;
@@ -215,6 +252,57 @@ export function useJoinRoom(playerAddress) {
   );
 
   return { joinRoom, loading, error };
+}
+
+// ── Mint tokens hook ─────────────────────────────────────────────────────────
+export function useMintTokens() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const { account } = useAccount();
+
+  const mintTokens = useCallback(async () => {
+    if (!account) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { Contract } = await import("starknet");
+      const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, account);
+      // Mint 1000 ZKT (1000 * 10^18)
+      const tx = await tokenContract.mint(account.address, BigInt("1000000000000000000000"));
+      await provider.waitForTransaction(tx.transaction_hash);
+    } catch (e) {
+      setError(e.message ?? "Failed to mint tokens");
+    } finally {
+      setLoading(false);
+    }
+  }, [account]);
+
+  return { mintTokens, loading, error };
+}
+
+// ── Token balance hook ────────────────────────────────────────────────────────
+export function useTokenBalance(address) {
+  const [balance, setBalance] = useState(null);
+
+  const fetchBalance = useCallback(async () => {
+    if (!address || TOKEN_ADDRESS === "0x0") return;
+    try {
+      const { Contract } = await import("starknet");
+      const tokenContract = new Contract(TOKEN_ABI, TOKEN_ADDRESS, provider);
+      const raw = await tokenContract.balance_of(address);
+      setBalance((Number(BigInt(raw.toString())) / 1e18).toFixed(2));
+    } catch {
+      // silent
+    }
+  }, [address]);
+
+  useEffect(() => {
+    fetchBalance();
+    const id = setInterval(fetchBalance, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchBalance]);
+
+  return { balance, refetch: fetchBalance };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

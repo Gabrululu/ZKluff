@@ -1,11 +1,15 @@
 import { Contract, RpcProvider, cairo } from "starknet";
 
-// ── Contract addresses (fill after deployment) ──────────────────────────────
-export const GAME_ADDRESS = import.meta.env.VITE_GAME_ADDRESS ?? "0x0";
-export const TOKEN_ADDRESS = import.meta.env.VITE_TOKEN_ADDRESS ?? "0x0";
-export const VERIFIER_ADDRESS = import.meta.env.VITE_VERIFIER_ADDRESS ?? "0x0";
+// ── Contract addresses ───────────────────────────────────────────────────────
+export const GAME_ADDRESS =
+  import.meta.env.VITE_GAME_CONTRACT ?? import.meta.env.VITE_GAME_ADDRESS ?? "0x0";
+export const TOKEN_ADDRESS =
+  import.meta.env.VITE_TOKEN_CONTRACT ?? import.meta.env.VITE_TOKEN_ADDRESS ?? "0x0";
+export const VERIFIER_ADDRESS =
+  import.meta.env.VITE_VERIFIER_CONTRACT ?? import.meta.env.VITE_VERIFIER_ADDRESS ?? "0x0";
 
-export const STARKNET_RPC = import.meta.env.VITE_STARKNET_RPC ??
+export const STARKNET_RPC =
+  import.meta.env.VITE_STARKNET_RPC ??
   "https://starknet-sepolia.public.blastapi.io/rpc/v0_7";
 
 export const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
@@ -76,6 +80,13 @@ export const GAME_ABI = [
     name: "get_room",
     inputs: [{ name: "room_id", type: "core::integer::u32" }],
     outputs: [{ type: "zkbluff::game::Room" }],
+    state_mutability: "view",
+  },
+  {
+    type: "function",
+    name: "get_next_room_id",
+    inputs: [],
+    outputs: [{ type: "core::integer::u32" }],
     state_mutability: "view",
   },
 ];

@@ -5,21 +5,23 @@ import { useProofGenerator } from "@/hooks/useProofGenerator";
 
 interface ProofModalProps {
   isOpen: boolean;
-  /** Card values 1-52 (private hand) */
   cards: number[];
-  /** Blinding salt used for Poseidon commitment */
   salt: string;
-  /** Cairo DeclarationType index (0-8) */
   declarationType: number;
-  /** Called with the Cairo-formatted proof object, or null on failure */
   onComplete: (cairoProof: object | null) => void;
   onClose: () => void;
 }
 
+const DECLARATION_NAMES = [
+  "High Card", "One Pair", "Two Pair", "Three of a Kind",
+  "Straight", "Flush", "Full House", "Four of a Kind", "Straight Flush",
+];
+
 const steps = [
-  "Hashing your hand...",
-  "Computing ZK circuit...",
-  "Proof ready. Submitting on-chain...",
+  { label: "Hashing hand with Poseidon...", key: "hash" },
+  { label: "Running Groth16 circuit (BN254)...", key: "prove" },
+  { label: "Verifying proof locally...", key: "verify" },
+  { label: "Proof verified. Ready to submit.", key: "done" },
 ];
 
 const MatrixRain = () => {
@@ -56,7 +58,11 @@ const ProofModal = ({
   onClose,
 }: ProofModalProps) => {
   const [currentStep, setCurrentStep] = useState(-1);
-  const [proofHash, setProofHash] = useState("");
+  const [proofData, setProofData] = useState<{
+    pi_a0: string;
+    commitment: string;
+    provingMs: number;
+  } | null>(null);
   const [proofError, setProofError] = useState("");
 
   const { generateProof } = useProofGenerator();
@@ -64,7 +70,7 @@ const ProofModal = ({
   useEffect(() => {
     if (!isOpen) {
       setCurrentStep(-1);
-      setProofHash("");
+      setProofData(null);
       setProofError("");
       return;
     }
@@ -73,36 +79,42 @@ const ProofModal = ({
 
     const run = async () => {
       setCurrentStep(0); // Hashing
-
-      // Brief pause so the first step is visible
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
       if (cancelled) return;
 
-      setCurrentStep(1); // Computing ZK circuit
-
+      setCurrentStep(1); // Proving
       const result = await generateProof({ cards, salt, declarationType });
       if (cancelled) return;
 
       if (!result) {
-        setProofError("Proof generation failed. Check circuit artifacts.");
+        setProofError("Proof generation failed. Check circuit artifacts in /public/circuits/.");
         setCurrentStep(-1);
         onComplete(null);
         return;
       }
 
-      // Show commitment from public signals as the "proof hash"
-      const commitmentHex =
-        "0x" + BigInt(result.publicSignals[0] ?? "0").toString(16).padStart(16, "0");
-      setProofHash(commitmentHex);
-      setCurrentStep(2); // Proof ready
+      setCurrentStep(2); // Verifying
+      await new Promise((r) => setTimeout(r, 300));
+      if (cancelled) return;
+
+      setCurrentStep(3); // Done
+
+      // Extract display data from the real proof
+      const pi_a0 = result.proof?.pi_a?.[0] ?? "";
+      const commitment = result.publicSignals?.[0] ?? "";
+      setProofData({
+        pi_a0: pi_a0 ? `0x${BigInt(pi_a0).toString(16).slice(0, 20)}...` : "",
+        commitment: commitment
+          ? `0x${BigInt(commitment).toString(16).slice(0, 16)}...`
+          : "",
+        provingMs: result.provingMs ?? 0,
+      });
+
       onComplete(result.cairoProof);
     };
 
     run();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -122,70 +134,95 @@ const ProofModal = ({
           >
             <MatrixRain />
 
-            <h2 className="font-display text-xl font-bold text-foreground mb-6 relative z-10">
-              Generating Zero-Knowledge Proof
-            </h2>
+            <div className="relative z-10">
+              <h2 className="font-display text-xl font-bold text-foreground mb-1">
+                Zero-Knowledge Proof
+              </h2>
+              <p className="font-mono text-xs text-muted-foreground mb-6">
+                Proving: <span className="text-primary">{DECLARATION_NAMES[declarationType]}</span>
+                {" · "}Groth16 / BN254
+              </p>
 
-            <div className="space-y-4 relative z-10">
-              {steps.map((step, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
-                    {currentStep > i ? (
-                      <motion.span
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="text-primary text-lg"
-                      >
-                        ✓
-                      </motion.span>
-                    ) : currentStep === i ? (
-                      <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse-green" />
-                    ) : (
-                      <span className="w-2.5 h-2.5 rounded-full bg-muted" />
-                    )}
+              {/* Steps */}
+              <div className="space-y-3 mb-6">
+                {steps.map((step, i) => (
+                  <div key={step.key} className="flex items-center gap-3">
+                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                      {currentStep > i ? (
+                        <motion.span
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="text-primary text-base"
+                        >
+                          ✓
+                        </motion.span>
+                      ) : currentStep === i ? (
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse-green" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-muted" />
+                      )}
+                    </div>
+                    <span
+                      className={`font-mono text-xs ${
+                        currentStep >= i ? "text-foreground" : "text-muted-foreground/50"
+                      }`}
+                    >
+                      {step.label}
+                    </span>
                   </div>
-                  <span
-                    className={`font-mono text-sm ${
-                      currentStep >= i ? "text-foreground" : "text-muted-foreground"
-                    }`}
-                  >
-                    {step}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
+
+              {/* Real proof data */}
+              {proofData && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-2 mb-5"
+                >
+                  <div className="rounded-lg bg-muted/60 border border-primary/20 px-3 py-2.5">
+                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                      π_A (proof element)
+                    </p>
+                    <p className="font-mono text-xs text-primary break-all">{proofData.pi_a0}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/60 border border-border/30 px-3 py-2.5">
+                    <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                      Public input — commitment
+                    </p>
+                    <p className="font-mono text-xs text-foreground break-all">
+                      {proofData.commitment}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground px-1">
+                    <span>Proving time</span>
+                    <span className="text-primary">{proofData.provingMs} ms</span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Error */}
+              {proofError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30"
+                >
+                  <p className="font-mono text-xs text-red-400">{proofError}</p>
+                </motion.div>
+              )}
+
+              {(currentStep === 3 || proofError) && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  onClick={onClose}
+                  className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground font-display font-bold uppercase tracking-wider text-sm"
+                >
+                  {proofError ? "Close" : "Submit On-Chain →"}
+                </motion.button>
+              )}
             </div>
-
-            {proofError && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6 p-3 rounded-lg bg-crimson/10 border border-crimson/30 relative z-10"
-              >
-                <p className="font-mono text-xs text-crimson">{proofError}</p>
-              </motion.div>
-            )}
-
-            {proofHash && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-6 p-3 rounded-lg bg-muted relative z-10"
-              >
-                <p className="text-[10px] text-muted-foreground mb-1">Commitment Hash</p>
-                <p className="font-mono text-xs text-primary truncate">{proofHash}</p>
-              </motion.div>
-            )}
-
-            {(currentStep === 2 || proofError) && (
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                onClick={onClose}
-                className="mt-4 w-full py-2 rounded-lg bg-primary text-primary-foreground font-display font-bold uppercase tracking-wider relative z-10"
-              >
-                Continue
-              </motion.button>
-            )}
           </motion.div>
         </motion.div>
       )}

@@ -1,17 +1,21 @@
 import { createRoot } from "react-dom/client";
 import { StrictMode } from "react";
-import { StarknetConfig, publicProvider, argent, braavos } from "@starknet-react/core";
+import { StarknetConfig, jsonRpcProvider, argent, braavos } from "@starknet-react/core";
 import { sepolia } from "@starknet-react/chains";
 import App from "./App.tsx";
 import "./index.css";
 
 const connectors = [argent(), braavos()];
 
+const rpcUrl =
+  import.meta.env.VITE_STARKNET_RPC ??
+  "https://starknet-sepolia.public.blastapi.io/rpc/v0_7";
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <StarknetConfig
       chains={[sepolia]}
-      provider={publicProvider()}
+      provider={jsonRpcProvider({ rpc: () => ({ nodeUrl: rpcUrl }) })}
       connectors={connectors}
       autoConnect
     >

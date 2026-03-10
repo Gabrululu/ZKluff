@@ -27,15 +27,15 @@ export function useProofGenerator() {
       // 1. Compute commitment from private inputs
       const commitment = await computeCommitment(cards, salt);
 
-      // 2. Generate the declaration proof
-      const { proof, publicSignals } = await proveDeclaration({
+      // 2. Generate the real Groth16 declaration proof
+      const { proof, publicSignals, provingMs } = await proveDeclaration({
         cards,
         salt,
         commitment,
         declarationType,
       });
 
-      // 3. Optional local verification (catches circuit errors before paying gas)
+      // 3. Local verification before paying gas
       const valid = await verifyProofLocally("declaration_valid", proof, publicSignals);
       if (!valid) {
         setProofError("Local proof verification failed — declaration may be false.");
@@ -45,7 +45,7 @@ export function useProofGenerator() {
       // 4. Format proof for Cairo contract call
       const cairoProof = formatProofForCairo(proof);
 
-      return { cairoProof, commitment, publicSignals };
+      return { cairoProof, commitment, publicSignals, proof, provingMs };
     } catch (err) {
       console.error("Proof generation error:", err);
       setProofError(err.message ?? "Unknown proof generation error");

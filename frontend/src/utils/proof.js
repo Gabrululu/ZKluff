@@ -79,12 +79,10 @@ export async function proveDeclaration({ cards, salt, commitment, declarationTyp
   };
 
   const { wasm, zkey } = CIRCUIT_PATHS.declaration_valid;
-  const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-    input,
-    wasm,
-    zkey
-  );
-  return { proof, publicSignals };
+  const t0 = performance.now();
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasm, zkey);
+  const provingMs = Math.round(performance.now() - t0);
+  return { proof, publicSignals, isDummy: false, provingMs };
 }
 
 /**

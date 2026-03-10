@@ -2,6 +2,14 @@
 
 > Project completed for Re{define} Hackathon | Starknet
 
+## Deployed Contracts — Starknet Sepolia
+
+| Contract | Address |
+|---|---|
+| **Game** | [`0x0128267c881b5b75bad09430ab1367c353add8874f9e64f803e8289fe57ed990`](https://sepolia.starkscan.co/contract/0x0128267c881b5b75bad09430ab1367c353add8874f9e64f803e8289fe57ed990) |
+| **MockToken (ZKT)** | [`0x02010c02949e50158d233d05563fa286bdadf111b17b54567c7b7660a57ab215`](https://sepolia.starkscan.co/contract/0x02010c02949e50158d233d05563fa286bdadf111b17b54567c7b7660a57ab215) |
+| **Verifier** | [`0x04030868f637ecd4f64d8b8f7045738dce2ed28d8df87157d42dd114083f2f99`](https://sepolia.starkscan.co/contract/0x04030868f637ecd4f64d8b8f7045738dce2ed28d8df87157d42dd114083f2f99) |
+
 ZKluff is a two-player bluffing card game deployed on Starknet. Players declare poker-style hand ranks without ever revealing their cards. Zero-knowledge proofs — generated entirely in the browser — let the smart contract verify that a declaration is truthful while keeping every card value completely private.
 
 ## How It Works
@@ -134,20 +142,37 @@ cp circuits/build/hand_commitment_vk.json frontend/public/circuits/
 cp circuits/build/declaration_valid_vk.json frontend/public/circuits/
 ```
 
-### 5. Deploy contracts to Sepolia
+### 5. Configure frontend environment
+
+The contracts are already deployed on Sepolia. Create `frontend/.env`:
+
+```env
+VITE_GAME_CONTRACT=0x0128267c881b5b75bad09430ab1367c353add8874f9e64f803e8289fe57ed990
+VITE_TOKEN_CONTRACT=0x02010c02949e50158d233d05563fa286bdadf111b17b54567c7b7660a57ab215
+VITE_VERIFIER_CONTRACT=0x04030868f637ecd4f64d8b8f7045738dce2ed28d8df87157d42dd114083f2f99
+VITE_STARKNET_RPC=https://starknet-sepolia.public.blastapi.io/rpc/v0_7
+```
+
+To redeploy (e.g. after contract changes):
 
 ```bash
-# Set up a starkli account (see https://book.starkli.rs/accounts)
-starkli account oz init ~/.starkli-wallets/deployer/account.json
-starkli account deploy ~/.starkli-wallets/deployer/account.json
-
 export STARKNET_ACCOUNT=~/.starkli-wallets/deployer/account.json
 export STARKNET_KEYSTORE=~/.starkli-wallets/deployer/keystore.json
-
 bash scripts/deploy.sh
 ```
 
-This writes contract addresses to `frontend/.env` automatically.
+### 5b. Mint test tokens
+
+Before playing, each wallet needs ZKT tokens. Call `mint` on the MockToken contract via starkli:
+
+```bash
+starkli invoke \
+  0x02010c02949e50158d233d05563fa286bdadf111b17b54567c7b7660a57ab215 \
+  mint <YOUR_WALLET_ADDRESS> u256:1000000000000000000000 \
+  --account $STARKNET_ACCOUNT --keystore $STARKNET_KEYSTORE
+```
+
+Or use [Starkscan's write interface](https://sepolia.starkscan.co/contract/0x02010c02949e50158d233d05563fa286bdadf111b17b54567c7b7660a57ab215#write-contract).
 
 ### 6. Run the frontend
 
