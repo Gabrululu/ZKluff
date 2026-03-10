@@ -1,6 +1,6 @@
 import { Contract, RpcProvider, cairo } from "starknet";
-import GameContractClass from "../../../contracts/target/dev/zkbluff_Game.contract_class.json";
-import TokenContractClass from "../../../contracts/target/dev/zkbluff_MockToken.contract_class.json";
+import GameAbi from "../abis/game.json";
+import TokenAbi from "../abis/token.json";
 
 // ── Contract addresses ───────────────────────────────────────────────────────
 export const GAME_ADDRESS =
@@ -17,8 +17,8 @@ export const STARKNET_RPC =
 export const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
 
 // ── ABIs from compiled Scarb artifacts ───────────────────────────────────────
-export const GAME_ABI = GameContractClass.abi;
-export const TOKEN_ABI = TokenContractClass.abi;
+export const GAME_ABI = GameAbi;
+export const TOKEN_ABI = TokenAbi;
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

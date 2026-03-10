@@ -1,0 +1,423 @@
+[
+  {
+    "type": "impl",
+    "name": "GameImpl",
+    "interface_name": "zkbluff::game::IGame"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "zkbluff::game::DeclarationType",
+    "variants": [
+      {
+        "name": "HighCard",
+        "type": "()"
+      },
+      {
+        "name": "OnePair",
+        "type": "()"
+      },
+      {
+        "name": "TwoPair",
+        "type": "()"
+      },
+      {
+        "name": "ThreeOfAKind",
+        "type": "()"
+      },
+      {
+        "name": "Straight",
+        "type": "()"
+      },
+      {
+        "name": "Flush",
+        "type": "()"
+      },
+      {
+        "name": "FullHouse",
+        "type": "()"
+      },
+      {
+        "name": "FourOfAKind",
+        "type": "()"
+      },
+      {
+        "name": "StraightFlush",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "zkbluff::game::GamePhase",
+    "variants": [
+      {
+        "name": "WaitingForPlayers",
+        "type": "()"
+      },
+      {
+        "name": "CommitPhase",
+        "type": "()"
+      },
+      {
+        "name": "DeclarationPhase",
+        "type": "()"
+      },
+      {
+        "name": "ChallengePhase",
+        "type": "()"
+      },
+      {
+        "name": "Resolved",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "zkbluff::game::Room",
+    "members": [
+      {
+        "name": "player_a",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "player_b",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "bet_amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "pot",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "phase",
+        "type": "zkbluff::game::GamePhase"
+      },
+      {
+        "name": "commitment_a",
+        "type": "core::felt252"
+      },
+      {
+        "name": "commitment_b",
+        "type": "core::felt252"
+      },
+      {
+        "name": "active_player_index",
+        "type": "core::integer::u8"
+      },
+      {
+        "name": "declaration",
+        "type": "zkbluff::game::DeclarationType"
+      },
+      {
+        "name": "declaration_commitment",
+        "type": "core::felt252"
+      },
+      {
+        "name": "declaration_type_felt",
+        "type": "core::felt252"
+      },
+      {
+        "name": "winner",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "zkbluff::game::IGame",
+    "items": [
+      {
+        "type": "function",
+        "name": "create_room",
+        "inputs": [
+          {
+            "name": "bet_amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "join_room",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "commit_hand",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "commitment",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "declare",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          },
+          {
+            "name": "declaration",
+            "type": "zkbluff::game::DeclarationType"
+          },
+          {
+            "name": "proof_a",
+            "type": "(core::felt252, core::felt252)"
+          },
+          {
+            "name": "proof_b",
+            "type": "((core::felt252, core::felt252), (core::felt252, core::felt252))"
+          },
+          {
+            "name": "proof_c",
+            "type": "(core::felt252, core::felt252)"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "challenge",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "fold",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_room",
+        "inputs": [
+          {
+            "name": "room_id",
+            "type": "core::integer::u32"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "zkbluff::game::Room"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_next_room_id",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u32"
+          }
+        ],
+        "state_mutability": "view"
+      }
+    ]
+  },
+  {
+    "type": "constructor",
+    "name": "constructor",
+    "inputs": [
+      {
+        "name": "token_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "verifier_address",
+        "type": "core::starknet::contract_address::ContractAddress"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::RoomCreated",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "room_id",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "player_a",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "bet_amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::PlayerJoined",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "room_id",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "player_b",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::HandCommitted",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "room_id",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "player",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "commitment",
+        "type": "core::felt252",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::DeclarationMade",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "room_id",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "player",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "declaration_type",
+        "type": "core::felt252",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::GameResolved",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "room_id",
+        "type": "core::integer::u32",
+        "kind": "key"
+      },
+      {
+        "name": "winner",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "data"
+      },
+      {
+        "name": "pot",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "zkbluff::game::Game::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "RoomCreated",
+        "type": "zkbluff::game::Game::RoomCreated",
+        "kind": "nested"
+      },
+      {
+        "name": "PlayerJoined",
+        "type": "zkbluff::game::Game::PlayerJoined",
+        "kind": "nested"
+      },
+      {
+        "name": "HandCommitted",
+        "type": "zkbluff::game::Game::HandCommitted",
+        "kind": "nested"
+      },
+      {
+        "name": "DeclarationMade",
+        "type": "zkbluff::game::Game::DeclarationMade",
+        "kind": "nested"
+      },
+      {
+        "name": "GameResolved",
+        "type": "zkbluff::game::Game::GameResolved",
+        "kind": "nested"
+      }
+    ]
+  }
+]
