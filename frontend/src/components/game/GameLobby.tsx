@@ -22,17 +22,17 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
   const { balance: zktBalance } = useTokenBalance(walletAddress);
   const { disconnect } = useDisconnect();
 
+  // Normalize to BigInt-based comparison — handles address padding differences
+  const normAddr = (a?: string) => { try { return BigInt(a ?? "0"); } catch { return 0n; } };
+  const myAddr = normAddr(walletAddress);
+
   const waitingRooms = rooms.filter(
-    (r: any) =>
-      r.phase === "WaitingForPlayers" &&
-      r.player_a?.toLowerCase() !== walletAddress?.toLowerCase()
+    (r: any) => r.phase === "WaitingForPlayers" && normAddr(r.player_a) !== myAddr
   );
 
   // Rooms created by the current user that are still open (player B hasn't joined yet)
   const myOpenRooms = rooms.filter(
-    (r: any) =>
-      r.phase === "WaitingForPlayers" &&
-      r.player_a?.toLowerCase() === walletAddress?.toLowerCase()
+    (r: any) => r.phase === "WaitingForPlayers" && normAddr(r.player_a) === myAddr
   );
 
   const handleCreate = async () => {

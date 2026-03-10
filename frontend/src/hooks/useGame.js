@@ -177,12 +177,15 @@ export function useRooms() {
     setLoading(true);
     try {
       const nextId = await callGetNextRoomId();
+      console.debug("[useRooms] nextId:", nextId);
       const results = [];
       for (let id = 1; id < nextId; id++) {
         try {
           const room = await callGetRoom(id);
+          console.debug(`[useRooms] room ${id}:`, room.phase, "player_a:", room.player_a);
           results.push({ id, ...room });
-        } catch {
+        } catch (e) {
+          console.debug(`[useRooms] skip room ${id}:`, e?.message);
           // skip rooms that fail to fetch
         }
       }

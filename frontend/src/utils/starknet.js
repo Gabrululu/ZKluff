@@ -31,7 +31,7 @@ export async function callGetRoom(roomId) {
   const res = await provider.callContract({
     contractAddress: GAME_ADDRESS,
     entrypoint: "get_room",
-    calldata: [String(roomId)],
+    calldata: ["0x" + Number(roomId).toString(16)],
   });
   return parseRoomFromFelts(res);
 }
@@ -76,10 +76,16 @@ const PHASE_NAMES = [
  *  [12] declaration_type_felt
  *  [13] winner
  */
+/** Normalize a Starknet address felt to "0x" + no-leading-zeros hex, matching wallet format. */
+function normAddr(felt) {
+  if (!felt) return "0x0";
+  try { return "0x" + BigInt(felt).toString(16); } catch { return felt; }
+}
+
 function parseRoomFromFelts(f) {
   return {
-    player_a: f[0],
-    player_b: f[1],
+    player_a: normAddr(f[0]),
+    player_b: normAddr(f[1]),
     bet_amount: BigInt(f[2]) + (BigInt(f[3]) << 128n),
     pot: BigInt(f[4]) + (BigInt(f[5]) << 128n),
     phase: PHASE_NAMES[Number(BigInt(f[6]))] ?? "Unknown",
@@ -89,7 +95,7 @@ function parseRoomFromFelts(f) {
     declaration: Number(BigInt(f[10])),
     declaration_commitment: f[11],
     declaration_type_felt: f[12],
-    winner: f[13],
+    winner: normAddr(f[13]),
   };
 }
 
