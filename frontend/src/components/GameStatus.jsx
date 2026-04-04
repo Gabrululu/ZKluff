@@ -1,4 +1,4 @@
-import React from "react";
+import { normalizeAddress } from "../utils/starknet";
 
 const PHASES = ["WaitingForPlayers", "CommitPhase", "DeclarationPhase", "ChallengePhase", "Resolved"];
 const PHASE_LABELS = ["Waiting", "Commit", "Declare", "Challenge", "Done"];
@@ -27,8 +27,8 @@ function PhaseStep({ label, icon, state }) {
 
 export default function GameStatus({ room, roomId, playerAddress }) {
   const phaseIndex = PHASES.indexOf(room.phase);
-  const isPlayerA = playerAddress && room.player_a === playerAddress;
-  const isPlayerB = playerAddress && room.player_b === playerAddress;
+  const isPlayerA = playerAddress && normalizeAddress(room.player_a) === normalizeAddress(playerAddress);
+  const isPlayerB = playerAddress && normalizeAddress(room.player_b) === normalizeAddress(playerAddress);
 
   const potFormatted = room.pot
     ? (BigInt(room.pot) / 10n ** 18n).toString()
@@ -38,17 +38,26 @@ export default function GameStatus({ room, roomId, playerAddress }) {
     <div style={{ display: "grid", gap: "0.85rem" }} className="fade-up">
 
       {/* Winner banner */}
-      {room.phase === "Resolved" && room.winner && room.winner !== "0x0" && (
-        <div className="winner-banner">
-          <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🏆</div>
-          <h2 style={{ fontSize: "1.4rem", fontFamily: "'Playfair Display', serif", color: "var(--gold)" }}>
-            {room.winner === playerAddress ? "You won!" : "Game Over"}
-          </h2>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.35rem" }}>
-            Winner: <span className="addr">{addr(room.winner)}</span>
-          </p>
-        </div>
-      )}
+      {room.phase === "Resolved" && room.winner && room.winner !== "0x0" && (() => {
+        const nWinner = normalizeAddress(room.winner ?? "0x0");
+        const nPlayer = normalizeAddress(playerAddress ?? "0x0");
+        console.log("Winner from contract:", room.winner);
+        console.log("Current player:", playerAddress);
+        console.log("Normalized winner:", nWinner);
+        console.log("Normalized player:", nPlayer);
+        console.log("Match:", nWinner === nPlayer);
+        return (
+          <div className="winner-banner">
+            <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🏆</div>
+            <h2 style={{ fontSize: "1.4rem", fontFamily: "'Playfair Display', serif", color: "var(--gold)" }}>
+              {nWinner === nPlayer ? "🏆 You Won!" : "💀 You Lost"}
+            </h2>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.35rem" }}>
+              Winner: <span className="addr">{addr(room.winner)}</span>
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Main panel */}
       <div className="panel">

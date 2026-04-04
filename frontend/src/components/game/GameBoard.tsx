@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDisconnect } from "@starknet-react/core";
 import GameStatus from "./GameStatus";
@@ -9,6 +9,8 @@ import DeclareModal from "./DeclareModal";
 import ProofModal from "./ProofModal";
 // @ts-ignore — JS hook
 import { useGame } from "@/hooks/useGame";
+// @ts-ignore — JS util
+import { normalizeAddress } from "@/utils/starknet";
 
 type Phase = "WAITING" | "COMMIT" | "DECLARE" | "CHALLENGE" | "RESOLVED";
 
@@ -100,14 +102,65 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
   const winnerAddress = room?.winner;
   const winner: "you" | "opponent" | null =
     uiPhase === "RESOLVED" && winnerAddress
-      ? winnerAddress === walletAddress
+      ? normalizeAddress(winnerAddress) === normalizeAddress(walletAddress)
         ? "you"
         : "opponent"
       : null;
 
+  // Determine which player slot we are and whether we've already committed
+  const normAddr = (a?: string) => { try { return BigInt(a ?? "0"); } catch { return 0n; } };
+  const myAddr = normAddr(walletAddress);
+  const isPlayerA = room && normalizeAddress(room.player_a) === normalizeAddress(walletAddress);
+  const myCommitment = isPlayerA ? room?.commitment_a : room?.commitment_b;
+  const hasCommittedOnChain = !!myCommitment && myCommitment !== "0x0" && myCommitment !== "0";
+
+  const activePlayer = room
+    ? (room.active_player_index === 0 ? normAddr(room.player_a) : normAddr(room.player_b))
+    : 0n;
+  const isMyTurn = myAddr !== 0n && myAddr === activePlayer;
+
+  // Optimistic local state — prevents re-clicks before on-chain state propagates
+  const [committed, setCommitted] = useState(false);
+  const [declared, setDeclared] = useState(false);
+
   const myCards: CardData[] = handNumbers.map(cardNumToData);
 
   const addLog = useCallback((msg: string) => setLog((prev) => [...prev, msg]), []);
+
+  // Sync optimistic state back to on-chain truth when room updates
+  useEffect(() => { if (hasCommittedOnChain) setCommitted(true); }, [hasCommittedOnChain]);
+  useEffect(() => { if (uiPhase !== "DECLARE") setDeclared(false); }, [uiPhase]);
+
+  // Fix 3 — reset local action flags when phase advances
+  useEffect(() => {
+    if (room?.phase === "DeclarationPhase") setCommitted(true);
+    if (room?.phase === "ChallengePhase") setDeclared(true);
+    if (room?.phase === "Resolved") { setCommitted(true); setDeclared(true); }
+  }, [room?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fix 4 — append game-log entries on phase transitions
+  const prevPhaseRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!room?.phase || room.phase === prevPhaseRef.current) return;
+    prevPhaseRef.current = room.phase;
+    switch (room.phase) {
+      case "CommitPhase":
+        addLog("Both players joined. Commit your hand.");
+        break;
+      case "DeclarationPhase":
+        addLog("Both hands committed. Make your declaration.");
+        break;
+      case "ChallengePhase":
+        addLog("Declaration made. Challenge or fold.");
+        break;
+      case "Resolved": {
+        const winnerAddr = normalizeAddress(room.winner);
+        const myAddrNorm = normalizeAddress(walletAddress);
+        addLog(winnerAddr === myAddrNorm ? "You won!" : "You lost.");
+        break;
+      }
+    }
+  }, [room?.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (error) addLog(`Error: ${error}`);
@@ -116,7 +169,8 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
   const handleCommit = useCallback(async () => {
     addLog("Committing hand (ZK hash)...");
     await commitHand();
-    addLog("Hand committed on-chain.");
+    setCommitted(true);
+    addLog("Hand committed on-chain. Waiting for opponent...");
   }, [commitHand, addLog]);
 
   const handleDeclare = useCallback(
@@ -138,6 +192,8 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
       }
       addLog("✓ Groth16 proof verified locally. Submitting on-chain...");
       await declare(pendingDeclarationType, cairoProof);
+      setDeclared(true);
+      setShowProof(false);
       addLog("Declaration + ZK proof submitted on-chain.");
     },
     [declare, pendingDeclarationType, addLog]
@@ -264,7 +320,17 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
 
         {/* Action Bar */}
         <div className="glass rounded-lg p-4 flex items-center justify-center gap-4">
-          {uiPhase === "COMMIT" && (
+          {uiPhase === "WAITING" && (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
+              Waiting for opponent to join...
+            </p>
+          )}
+
+          {uiPhase === "COMMIT" && (committed ? (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
+              ✓ Hand committed — waiting for opponent...
+            </p>
+          ) : (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -274,9 +340,13 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
             >
               {loading ? "Committing..." : "Commit Hand"}
             </motion.button>
-          )}
+          ))}
 
-          {uiPhase === "DECLARE" && (
+          {uiPhase === "DECLARE" && (declared ? (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
+              ✓ Declared — waiting for opponent to challenge or fold...
+            </p>
+          ) : isMyTurn ? (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -284,22 +354,24 @@ const GameBoard = ({ roomId, walletAddress, onLeave }: GameBoardProps) => {
               disabled={loading}
               className="px-8 py-3 rounded-lg bg-primary text-primary-foreground font-display font-bold uppercase tracking-wider glow-green disabled:opacity-50"
             >
-              Declare Hand
+              {loading ? "Declaring..." : "Declare Hand"}
             </motion.button>
-          )}
+          ) : (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
+              Waiting for opponent to declare...
+            </p>
+          ))}
 
-          {uiPhase === "CHALLENGE" && (
+          {uiPhase === "CHALLENGE" && (!isMyTurn ? (
             <CalloutButton onCallBluff={handleCallBluff} onFold={handleFold} />
-          )}
+          ) : (
+            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
+              Waiting for opponent to challenge or fold...
+            </p>
+          ))}
 
           {uiPhase === "RESOLVED" && (
             <p className="font-mono text-sm text-muted-foreground">Game resolved on-chain.</p>
-          )}
-
-          {uiPhase === "WAITING" && (
-            <p className="font-mono text-sm text-muted-foreground animate-pulse-green">
-              Waiting for opponent...
-            </p>
           )}
         </div>
       </div>

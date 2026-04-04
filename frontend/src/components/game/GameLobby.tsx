@@ -35,6 +35,14 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
     (r: any) => r.phase === "WaitingForPlayers" && normAddr(r.player_a) === myAddr
   );
 
+  // In-progress rooms where the current user is already a player (any phase except Resolved)
+  const myActiveRooms = rooms.filter(
+    (r: any) =>
+      r.phase !== "WaitingForPlayers" &&
+      r.phase !== "Resolved" &&
+      (normAddr(r.player_a) === myAddr || normAddr(r.player_b) === myAddr)
+  );
+
   const handleCreate = async () => {
     setJoinError("");
     const fee = parseFloat(entryFee) || 0.05;
@@ -46,6 +54,12 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
 
   const handleJoin = async (id: string | number) => {
     setJoinError("");
+    // If the user is already a player in this room, just navigate — no contract call needed
+    const existing = rooms.find((r: any) => String(r.id) === String(id));
+    if (existing && (normAddr(existing.player_a) === myAddr || normAddr(existing.player_b) === myAddr)) {
+      onJoinGame(id.toString());
+      return;
+    }
     const success = await joinRoom(id);
     if (success) {
       onJoinGame(id.toString());
@@ -197,6 +211,44 @@ const GameLobby = ({ walletAddress, onCreateGame, onJoinGame }: GameLobbyProps) 
                     whileTap={{ scale: 0.95 }}
                     onClick={() => onJoinGame(room.id.toString())}
                     className="px-4 py-1.5 rounded-md bg-primary/20 border border-primary/40 text-primary text-xs font-display font-bold uppercase hover:bg-primary/30 transition-colors"
+                  >
+                    Rejoin
+                  </motion.button>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* My Active Games — rejoin in-progress rooms */}
+        {myActiveRooms.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-6 border border-yellow-500/30 mb-6"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+              <h3 className="font-display text-lg font-bold text-yellow-400">My Active Games</h3>
+            </div>
+            <p className="font-mono text-[10px] text-muted-foreground mb-4">
+              Games in progress where you are a player.
+            </p>
+            <div className="flex flex-col gap-2">
+              {myActiveRooms.map((room: any) => (
+                <div key={room.id} className="flex items-center justify-between rounded-lg border border-border/40 px-4 py-3">
+                  <div className="flex items-center gap-4">
+                    <span className="font-mono text-xs text-foreground">Room #{room.id}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">{room.phase}</span>
+                    <span className="font-mono text-xs text-gold">
+                      {room.bet_amount ? (Number(BigInt(room.bet_amount)) / 1e18).toFixed(4) : "—"} ZKT
+                    </span>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => onJoinGame(room.id.toString())}
+                    className="px-4 py-1.5 rounded-md bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 text-xs font-display font-bold uppercase hover:bg-yellow-500/30 transition-colors"
                   >
                     Rejoin
                   </motion.button>

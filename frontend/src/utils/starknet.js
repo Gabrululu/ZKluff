@@ -12,7 +12,10 @@ export const STARKNET_RPC =
   import.meta.env.VITE_STARKNET_RPC ??
   "https://starknet-sepolia.public.blastapi.io/rpc/v0_7";
 
-export const provider = new RpcProvider({ nodeUrl: STARKNET_RPC });
+export const provider = new RpcProvider({
+  nodeUrl: STARKNET_RPC,
+  chainId: "0x534e5f5345504f4c4941", // SN_SEPOLIA explicit — required by Braavos fee estimation
+});
 
 // ── Low-level read helpers (bypass Contract class to avoid starknet.js v8 ABI issues) ──
 
@@ -82,6 +85,12 @@ function normAddr(felt) {
   try { return "0x" + BigInt(felt).toString(16); } catch { return felt; }
 }
 
+/** Exported alias — use this when comparing addresses across the app. */
+export function normalizeAddress(addr) {
+  if (!addr || addr === "0x0") return "0x0";
+  try { return "0x" + BigInt(addr).toString(16); } catch { return addr.toLowerCase(); }
+}
+
 function parseRoomFromFelts(f) {
   return {
     player_a: normAddr(f[0]),
@@ -122,16 +131,35 @@ export function parseRoom(raw) {
   };
 }
 
-/** Convert a Groth16 proof (snarkjs output) to the tuples expected by Cairo. */
+// Starknet felt252 prime: 2^251 + 17·2^192 + 1
+const FELT_MOD = BigInt("3618502788666131213697322783095070105623107215331596699973092056135872020481");
+
+/** Reduce a BN254 field element into felt252 range and return as "0x..." hex string. */
+function toHexFelt(value) {
+  return "0x" + (BigInt(value) % FELT_MOD).toString(16);
+}
+
+/**
+ * Convert a Groth16 proof (snarkjs output) to the tuples expected by Cairo.
+ *
+ * BN254 G2 points in snarkjs are stored as [imag, real] (imaginary part first),
+ * so pi_b[i][0] is the imaginary component and pi_b[i][1] is the real component.
+ * Cairo expects (real, imag), so the indices are swapped here.
+ */
 export function formatProofForCairo(proof) {
   const { pi_a, pi_b, pi_c } = proof;
-  const toFelt = (n) => BigInt(n).toString();
   return {
-    proof_a: [toFelt(pi_a[0]), toFelt(pi_a[1])],
-    proof_b: [
-      [toFelt(pi_b[0][0]), toFelt(pi_b[0][1])],
-      [toFelt(pi_b[1][0]), toFelt(pi_b[1][1])],
-    ],
-    proof_c: [toFelt(pi_c[0]), toFelt(pi_c[1])],
+    a: {
+      x: toHexFelt(pi_a[0]),
+      y: toHexFelt(pi_a[1]),
+    },
+    b: {
+      x: { real: toHexFelt(pi_b[0][1]), imag: toHexFelt(pi_b[0][0]) },
+      y: { real: toHexFelt(pi_b[1][1]), imag: toHexFelt(pi_b[1][0]) },
+    },
+    c: {
+      x: toHexFelt(pi_c[0]),
+      y: toHexFelt(pi_c[1]),
+    },
   };
 }

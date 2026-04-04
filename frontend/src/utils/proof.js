@@ -1,95 +1,121 @@
 /**
  * proof.js — client-side Groth16 proof generation helpers.
  *
- * All proof generation runs in the browser using snarkjs.
- * The compiled circuit artifacts (*.wasm and *.zkey) must be placed in
- * /public/circuits/ after running the compilation steps described in README.md.
+ * Commitment = Poseidon(cards[0..4], salt) computed via circomlibjs,
+ * which matches circomlib's Poseidon EXACTLY (same field, same round constants).
+ * Both hand_commitment and declaration_valid circuits take commitment as a
+ * PUBLIC INPUT and verify: commitment === Poseidon(cards, salt).
+ *
+ * Circuit artifacts must be placed in /public/circuits/ after compilation.
  */
 
 import * as snarkjs from "snarkjs";
+import { buildPoseidon } from "circomlibjs";
 
-// Paths to compiled circuit artifacts served from /public/
 const CIRCUITS_BASE = "/circuits";
 
 const CIRCUIT_PATHS = {
   hand_commitment: {
     wasm: `${CIRCUITS_BASE}/hand_commitment.wasm`,
-    zkey: `${CIRCUITS_BASE}/hand_commitment_final.zkey`,
-    vkey: `${CIRCUITS_BASE}/hand_commitment_vk.json`,
+    zkey: `${CIRCUITS_BASE}/hand_commitment.zkey`,
   },
   declaration_valid: {
     wasm: `${CIRCUITS_BASE}/declaration_valid.wasm`,
-    zkey: `${CIRCUITS_BASE}/declaration_valid_final.zkey`,
-    vkey: `${CIRCUITS_BASE}/declaration_valid_vk.json`,
+    zkey: `${CIRCUITS_BASE}/declaration_valid.zkey`,
+    vkey: `${CIRCUITS_BASE}/declaration_valid_vkey.json`,
   },
 };
 
+// Singleton — buildPoseidon is expensive; build once and reuse.
+let poseidonInstance = null;
+async function getPoseidon() {
+  if (!poseidonInstance) {
+    poseidonInstance = await buildPoseidon();
+  }
+  return poseidonInstance;
+}
+
 /**
- * Generate a Poseidon commitment for a 5-card hand.
- * This mirrors the circom circuit's hash computation.
- * Returns the commitment as a decimal string (felt252-compatible).
- *
- * Note: uses snarkjs's built-in Poseidon, which matches Starknet's Poseidon
- * parameters (same BN254 curve, same round constants).
+ * Compute Poseidon(cards[0..4], salt) using circomlibjs.
+ * Output is converted from Montgomery form with F.toString(), producing the
+ * exact decimal string the Circom circuit expects as a public input.
  */
 export async function computeCommitment(cards, salt) {
   if (cards.length !== 5) throw new Error("Need exactly 5 cards");
-  const { buildPoseidon } = await import("circomlibjs");
-  const poseidon = await buildPoseidon();
-  const inputs = [...cards.map(BigInt), BigInt(salt)];
+  const poseidon = await getPoseidon();
+  const inputs = [...cards.map((c) => BigInt(c)), BigInt(salt)];
   const hash = poseidon(inputs);
+  // F.toString converts from Montgomery/internal form to the plain field element string
   return poseidon.F.toString(hash);
 }
 
 /**
- * Generate a Groth16 proof that commitment = Poseidon(cards, salt).
- * Returns { proof, publicSignals } from snarkjs.
+ * Run the hand_commitment circuit with the pre-computed JS commitment as the
+ * public input. Useful for verifying the JS and circuit Poseidon agree.
+ *
+ * Returns { commitment, proof, publicSignals }.
  */
-export async function proveHandCommitment({ cards, salt, commitment }) {
-  const input = {
-    cards: cards.map(String),
-    salt: String(salt),
-    commitment: String(commitment),
-  };
+export async function computeAndProveCommitment(cards, salt) {
+  const commitment = await computeCommitment(cards, salt);
+  console.log("Commitment for hand_commitment proof:", commitment);
 
   const { wasm, zkey } = CIRCUIT_PATHS.hand_commitment;
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-    input,
+    {
+      cards: cards.map((c) => c.toString()),
+      salt: String(salt),
+      commitment, // public input — circuit verifies Poseidon(cards,salt) == this
+    },
     wasm,
-    zkey
+    zkey,
   );
-  return { proof, publicSignals };
+  return { commitment, proof, publicSignals };
 }
 
 /**
  * Generate a Groth16 proof that the declared hand rank is truthful.
- * Returns { proof, publicSignals } from snarkjs.
  *
- * @param {number[]} cards        — 5 card values [1..52]
- * @param {string|bigint} salt    — blinding factor used in commitment
- * @param {string} commitment     — Poseidon(cards, salt) as decimal string
- * @param {number} declarationType — 0-8, matches DeclarationType enum
+ * 1. Compute commitment in JS via circomlibjs (matches circuit's Poseidon).
+ * 2. Pass commitment as the required public input to declaration_valid.
+ *
+ * Returns { proof, publicSignals, commitment, provingMs }.
  */
-export async function proveDeclaration({ cards, salt, commitment, declarationType }) {
-  const input = {
-    cards: cards.map(String),
-    salt: String(salt),
-    commitment: String(commitment),
-    declaration_type: String(declarationType),
-  };
+export async function proveDeclaration({ cards, salt, declarationType }) {
+  const safeCards = cards.map((c) => c.toString());
+  const safeSalt = String(salt);
+
+  // Compute commitment with the same Poseidon the circuit uses
+  const commitment = await computeCommitment(cards, salt);
+  console.log("Commitment for proof:", commitment);
 
   const { wasm, zkey } = CIRCUIT_PATHS.declaration_valid;
   const t0 = performance.now();
-  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasm, zkey);
+  const origError = console.error;
+  console.error = () => {};
+  let proof, publicSignals;
+  try {
+    ({ proof, publicSignals } = await snarkjs.groth16.fullProve(
+      {
+        cards: safeCards,
+        salt: safeSalt,
+        commitment,                          // public input — must match circuit
+        declaration_type: String(declarationType),
+      },
+      wasm,
+      zkey,
+    ));
+  } finally {
+    console.error = origError;
+  }
   const provingMs = Math.round(performance.now() - t0);
-  return { proof, publicSignals, isDummy: false, provingMs };
+
+  return { proof, publicSignals, commitment, provingMs };
 }
 
 /**
  * Verify a proof client-side (optional sanity check before submitting to chain).
  */
-export async function verifyProofLocally(circuitName, proof, publicSignals) {
-  const { vkey: vkeyPath } = CIRCUIT_PATHS[circuitName];
-  const vkey = await fetch(vkeyPath).then((r) => r.json());
+export async function verifyProofLocally(proof, publicSignals) {
+  const vkey = await fetch(CIRCUIT_PATHS.declaration_valid.vkey).then((r) => r.json());
   return snarkjs.groth16.verify(vkey, publicSignals, proof);
 }
